@@ -5,13 +5,11 @@ CREDENTIALS_FILE="/app/data/credentials.json"
 
 # Step 1: Check for existing credentials or env var
 get_api_key() {
-    # Priority 1: env var
     if [ -n "$CODEBUFF_API_KEY" ]; then
         echo "$CODEBUFF_API_KEY"
         return 0
     fi
 
-    # Priority 2: saved credentials
     if [ -f "$CREDENTIALS_FILE" ]; then
         KEY=$(jq -r '.default.authToken' "$CREDENTIALS_FILE" 2>/dev/null)
         if [ -n "$KEY" ] && [ "$KEY" != "null" ]; then
@@ -29,15 +27,17 @@ login() {
     echo ""
 
     FINGERPRINT=$(cat /proc/sys/kernel/random/uuid)
-    RESPONSE=$(curl -s -X POST "${BACKEND_URL}/api/auth/cli/code" \
+    CODE_RESPONSE=$(curl -s -X POST "${BACKEND_URL}/api/auth/cli/code" \
         -H "Content-Type: application/json" \
         -d "{\"fingerprintId\": \"${FINGERPRINT}\"}")
 
-    LOGIN_URL=$(echo "$RESPONSE" | jq -r '.url // .loginUrl // empty' 2>/dev/null)
+    LOGIN_URL=$(echo "$CODE_RESPONSE" | jq -r '.loginUrl // empty' 2>/dev/null)
+    FINGERPRINT_HASH=$(echo "$CODE_RESPONSE" | jq -r '.fingerprintHash // empty' 2>/dev/null)
+    EXPIRES_AT=$(echo "$CODE_RESPONSE" | jq -r '.expiresAt // empty' 2>/dev/null)
 
     if [ -z "$LOGIN_URL" ]; then
         echo "ERROR: Could not get login URL from server."
-        echo "Response: $RESPONSE"
+        echo "Response: $CODE_RESPONSE"
         echo ""
         echo "Set CODEBUFF_API_KEY env var manually:"
         echo "  1. npm install -g freebuff && freebuff"
@@ -56,23 +56,38 @@ login() {
     MAX_WAIT=300
     ELAPSED=0
     while [ $ELAPSED -lt $MAX_WAIT ]; do
-        STATUS=$(curl -s -X GET "${BACKEND_URL}/api/auth/cli/status" \
-            -H "Content-Type: application/json" \
-            -G \
-            --data-urlencode "fingerprintId=${FINGERPRINT}")
+        STATUS=$(curl -s -G "${BACKEND_URL}/api/auth/cli/status" \
+            --data-urlencode "fingerprintId=${FINGERPRINT}" \
+            --data-urlencode "fingerprintHash=${FINGERPRINT_HASH}" \
+            --data-urlencode "expiresAt=${EXPIRES_AT}")
 
-        AUTH_TOKEN=$(echo "$STATUS" | jq -r '.authToken // .token // empty' 2>/dev/null)
+        # Check for successful auth (HTTP 200 with user object)
+        AUTH_TOKEN=$(echo "$STATUS" | jq -r '.user.authToken // empty' 2>/dev/null)
 
-        if [ -n "$AUTH_TOKEN" ] && [ "$AUTH_TOKEN" != "null" ] && [ "$AUTH_TOKEN" != "" ]; then
+        if [ -n "$AUTH_TOKEN" ] && [ "$AUTH_TOKEN" != "null" ]; then
             echo "Login successful!"
             mkdir -p /app/data
-            echo "$STATUS" | jq '{default: {authToken: (.authToken // .token), id: .id, email: .email, name: .name, fingerprintId: "'${FINGERPRINT}'"}}' > "$CREDENTIALS_FILE"
+            USER_NAME=$(echo "$STATUS" | jq -r '.user.name // "unknown"')
+            USER_EMAIL=$(echo "$STATUS" | jq -r '.user.email // "unknown"')
+            USER_ID=$(echo "$STATUS" | jq -r '.user.id // ""')
+            cat > "$CREDENTIALS_FILE" <<EOF
+{
+  "default": {
+    "authToken": "${AUTH_TOKEN}",
+    "id": "${USER_ID}",
+    "name": "${USER_NAME}",
+    "email": "${USER_EMAIL}",
+    "fingerprintId": "${FINGERPRINT}",
+    "fingerprintHash": "${FINGERPRINT_HASH}"
+  }
+}
+EOF
             echo "$AUTH_TOKEN"
             return 0
         fi
 
-        sleep 3
-        ELAPSED=$((ELAPSED + 3))
+        sleep 5
+        ELAPSED=$((ELAPSED + 5))
     done
 
     echo "ERROR: Login timed out after 5 minutes."

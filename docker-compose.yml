@@ -1,18 +1,9 @@
 services:
   freebuff-proxy:
-    image: chainlinn/freebuff-proxy:dev
+    image: santu24/freebuff-proxy:dev
     ports:
-      - '9090:8080'
-    environment:
-      # 方式1: 直接填 freebuff authToken
-      # - CODEBUFF_API_KEY=your_token_here
-
-      # 方式2: 留空 → 首次启动打印登录URL，浏览器打开登录后 token 自动保存到 volume
-      - CODEBUFF_API_KEY=
+      - '9099:8080'
     volumes:
-      - freebuff-data:/app/data
+      - ./data:/app/data
     container_name: freebuff-proxy
     restart: unless-stopped
-
-volumes:
-  freebuff-data:
