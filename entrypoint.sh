@@ -1,11 +1,19 @@
 #!/bin/sh
 
 echo "========================================="
-echo "  freebuff-proxy v2024.04.17-6"
+echo "  freebuff-proxy v2024.04.17-7"
 echo "  Starting at: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "========================================="
 
 CREDENTIALS_FILE="/app/data/credentials.json"
+
+# Resolve outbound proxy for curl
+CURL_PROXY=""
+OUTBOUND_PROXY="${HTTPS_PROXY:-${HTTP_PROXY:-${https_proxy:-${http_proxy:-}}}}"
+if [ -n "$OUTBOUND_PROXY" ]; then
+    CURL_PROXY="-x $OUTBOUND_PROXY"
+    echo "[INFO] Outbound proxy for curl: $OUTBOUND_PROXY"
+fi
 
 # Step 1: Get API key
 echo "[DEBUG] Checking CODEBUFF_API_KEY env var..."
@@ -33,7 +41,7 @@ if [ -z "$API_KEY" ]; then
     FINGERPRINT=$(cat /proc/sys/kernel/random/uuid)
     echo "[DEBUG] Fingerprint: $FINGERPRINT"
 
-    CODE_RESPONSE=$(curl -s -X POST "${BACKEND_URL}/api/auth/cli/code" \
+    CODE_RESPONSE=$(curl -s $CURL_PROXY -X POST "${BACKEND_URL}/api/auth/cli/code" \
         -H "Content-Type: application/json" \
         -d "{\"fingerprintId\": \"${FINGERPRINT}\"}")
 
@@ -59,7 +67,7 @@ if [ -z "$API_KEY" ]; then
     MAX_WAIT=300
     ELAPSED=0
     while [ $ELAPSED -lt $MAX_WAIT ]; do
-        STATUS=$(curl -s -G "${BACKEND_URL}/api/auth/cli/status" \
+        STATUS=$(curl -s $CURL_PROXY -G "${BACKEND_URL}/api/auth/cli/status" \
             --data-urlencode "fingerprintId=${FINGERPRINT}" \
             --data-urlencode "fingerprintHash=${FINGERPRINT_HASH}" \
             --data-urlencode "expiresAt=${EXPIRES_AT}")
