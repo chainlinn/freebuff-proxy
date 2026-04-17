@@ -4,7 +4,7 @@ const fs = require('fs');
 
 let HttpsProxyAgent;
 try {
-  HttpsProxyAgent = require('/usr/local/lib/node_modules/https-proxy-agent');
+  HttpsProxyAgent = require('https-proxy-agent');
 } catch (_) {
   HttpsProxyAgent = null;
 }
