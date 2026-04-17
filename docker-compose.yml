@@ -1,6 +1,7 @@
 services:
   freebuff-proxy:
     image: santu24/freebuff-proxy:dev
+    pull_policy: always
     ports:
       - '9099:8080'
     volumes:
