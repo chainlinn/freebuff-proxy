@@ -1,16 +1,22 @@
-FROM nginx:alpine
+FROM node:20-alpine
 
-# Install jq for JSON processing in auth script
-RUN apk add --no-cache jq curl
+# Install nginx + curl + jq
+RUN apk add --no-cache nginx curl jq
 
-# Copy nginx config and entrypoint script
+# Install freebuff CLI globally
+RUN npm install -g freebuff
+
+# Copy configs
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Environment variables
-ENV CODEBUFF_API_KEY=""
-ENV BACKEND_URL="https://www.codebuff.com"
+# Persistent credentials volume
+VOLUME /app/data
+
 ENV PROXY_PORT=8080
+ENV BACKEND_URL="https://www.codebuff.com"
+
+EXPOSE 8080
 
 ENTRYPOINT ["/entrypoint.sh"]
