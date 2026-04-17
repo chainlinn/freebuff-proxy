@@ -1,7 +1,7 @@
 #!/bin/sh
 
 echo "========================================="
-echo "  freebuff-proxy v2024.04.17-5"
+echo "  freebuff-proxy v2024.04.17-6"
 echo "  Starting at: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "========================================="
 
@@ -91,7 +91,7 @@ fi
 
 echo ""
 echo "=== Freebuff API Proxy ==="
-echo "  Version: v2024.04.17-5"
+echo "  Version: v2024.04.17-6"
 echo "  Time:    $(date '+%Y-%m-%d %H:%M:%S')"
 echo "  Backend: ${BACKEND_URL}"
 echo "  Port:    ${PROXY_PORT}"

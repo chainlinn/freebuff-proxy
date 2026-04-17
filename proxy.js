@@ -1,8 +1,13 @@
 const http = require('http');
 const https = require('https');
-const tls = require('tls');
-const { URL } = require('url');
 const fs = require('fs');
+
+let HttpsProxyAgent;
+try {
+  HttpsProxyAgent = require('/usr/local/lib/node_modules/https-proxy-agent');
+} catch (_) {
+  HttpsProxyAgent = null;
+}
 
 const BACKEND_URL = process.env.BACKEND_URL || 'https://www.codebuff.com';
 const PORT = parseInt(process.env.PROXY_PORT || '8080', 10);
@@ -11,85 +16,35 @@ const OUTBOUND_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || proc
 let API_KEY = fs.readFileSync('/tmp/api_key', 'utf8').trim();
 const backendUrl = new URL(BACKEND_URL);
 
-// Create a TLS tunnel through the outbound proxy
-function createTunnel() {
-  return new Promise((resolve, reject) => {
-    if (!OUTBOUND_PROXY) {
-      resolve(null); // no proxy
-      return;
-    }
-
-    const proxyUrl = new URL(OUTBOUND_PROXY);
-    const targetHost = backendUrl.hostname;
-    const targetPort = 443;
-
-    const connectReq = http.request({
-      host: proxyUrl.hostname,
-      port: proxyUrl.port || 7890,
-      method: 'CONNECT',
-      path: `${targetHost}:${targetPort}`,
-      headers: { Host: `${targetHost}:${targetPort}` },
-    });
-
-    if (proxyUrl.username || proxyUrl.password) {
-      const auth = Buffer.from(`${proxyUrl.username}:${proxyUrl.password}`).toString('base64');
-      connectReq.setHeader('Proxy-Authorization', `Basic ${auth}`);
-    }
-
-    connectReq.on('connect', (res, socket) => {
-      if (res.statusCode !== 200) {
-        socket.destroy();
-        reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
-        return;
-      }
-
-      const tlsSocket = tls.connect({ socket, servername: targetHost }, () => {
-        resolve(tlsSocket);
-      });
-
-      tlsSocket.on('error', reject);
-    });
-
-    connectReq.on('error', reject);
-    connectReq.end();
-  });
+// Build https.Agent with proxy support
+function getAgent() {
+  if (OUTBOUND_PROXY && HttpsProxyAgent) {
+    return new HttpsProxyAgent(OUTBOUND_PROXY);
+  }
+  return new https.Agent();
 }
 
-// Make request to backend (with or without proxy)
-async function backendRequest(method, path, headers, body) {
-  const tunnel = await createTunnel();
+const agent = getAgent();
 
-  const options = {
-    method,
-    hostname: backendUrl.hostname,
-    port: backendUrl.port || 443,
-    path,
-    headers,
-  };
-
+// Make request to backend
+function backendRequest(method, path, headers, body) {
   return new Promise((resolve, reject) => {
-    let req;
+    const options = {
+      hostname: backendUrl.hostname,
+      port: backendUrl.port || 443,
+      path,
+      method,
+      headers,
+      agent,
+    };
 
-    if (tunnel) {
-      // Use the tunnel socket directly
-      options.socket = tunnel;
-      options.agent = false;
-      req = https.request(options, (res) => {
-        resolve(res);
-      });
-    } else {
-      req = https.request(options, (res) => {
-        resolve(res);
-      });
-    }
-
+    const req = https.request(options, resolve);
     req.on('error', reject);
     if (body) req.write(body);
     req.end();
   });
 }
 
-// Read full response body
 function readBody(res) {
   return new Promise((resolve) => {
     let data = '';
@@ -98,7 +53,6 @@ function readBody(res) {
   });
 }
 
-// Create agent run
 async function createAgentRun() {
   const body = JSON.stringify({ action: 'START', agentId: 'freebuff-proxy' });
   const headers = {
@@ -106,7 +60,6 @@ async function createAgentRun() {
     'Authorization': `Bearer ${API_KEY}`,
     'Content-Length': Buffer.byteLength(body),
   };
-
   const res = await backendRequest('POST', '/api/v1/agent-runs', headers, body);
   const data = await readBody(res);
   const json = JSON.parse(data);
@@ -114,7 +67,6 @@ async function createAgentRun() {
   throw new Error(`No runId: ${data}`);
 }
 
-// Finish agent run
 async function finishAgentRun(runId, status) {
   const body = JSON.stringify({ action: 'FINISH', runId, status });
   const headers = {
@@ -122,12 +74,9 @@ async function finishAgentRun(runId, status) {
     'Authorization': `Bearer ${API_KEY}`,
     'Content-Length': Buffer.byteLength(body),
   };
-  try {
-    await backendRequest('POST', '/api/v1/agent-runs', headers, body);
-  } catch (_) {}
+  try { await backendRequest('POST', '/api/v1/agent-runs', headers, body); } catch (_) {}
 }
 
-// Main handler
 async function handleRequest(req, res) {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -166,7 +115,7 @@ async function handleRequest(req, res) {
         let runId;
         try {
           runId = await createAgentRun();
-          console.log(`[INFO] Agent run created: ${runId}`);
+          console.log(`[INFO] Agent run: ${runId}`);
         } catch (e) {
           console.error('[ERROR] createAgentRun:', e.message);
           res.writeHead(502, { 'Content-Type': 'application/json' });
@@ -176,7 +125,7 @@ async function handleRequest(req, res) {
 
         parsed.codebuff_metadata = parsed.codebuff_metadata || {};
         parsed.codebuff_metadata.run_id = runId;
-        parsed.codebuff_metadata.client_id = parsed.codebuff_metadata.client_id || 'freebuff-proxy';
+        parsed.codebuff_metadata.client_id = 'freebuff-proxy';
         parsed.codebuff_metadata.cost_mode = 'free';
         parsed.stream = parsed.stream !== undefined ? parsed.stream : true;
 
@@ -191,8 +140,7 @@ async function handleRequest(req, res) {
 
         try {
           const proxyRes = await backendRequest('POST', '/api/v1/chat/completions', headers, newBody);
-          console.log(`[INFO] Backend responded: ${proxyRes.statusCode}`);
-
+          console.log(`[INFO] Backend: ${proxyRes.statusCode}`);
           res.writeHead(proxyRes.statusCode, proxyRes.headers);
           proxyRes.on('data', (chunk) => { res.write(chunk); });
           proxyRes.on('end', () => {
@@ -200,7 +148,7 @@ async function handleRequest(req, res) {
             finishAgentRun(runId, 'FINISHED').catch(console.error);
           });
         } catch (e) {
-          console.error('[ERROR] chat request:', e.message);
+          console.error('[ERROR] chat:', e.message);
           if (!res.headersSent) {
             res.writeHead(502, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: e.message, type: 'server_error' } }));
@@ -228,7 +176,6 @@ async function handleRequest(req, res) {
         'User-Agent': 'ai-sdk/openai-compatible/codebuff',
         ...(body ? { 'Content-Length': Buffer.byteLength(body) } : {}),
       };
-
       try {
         const proxyRes = await backendRequest(req.method, targetPath, headers, body || undefined);
         res.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -248,7 +195,7 @@ async function handleRequest(req, res) {
 
 const server = http.createServer(handleRequest);
 server.listen(PORT, () => {
-  console.log(`[INFO] freebuff-proxy v2024.04.17-5`);
+  console.log(`[INFO] freebuff-proxy v2024.04.17-6`);
   console.log(`[INFO] Listening on port ${PORT}`);
   console.log(`[INFO] Backend: ${BACKEND_URL}`);
   console.log(`[INFO] Outbound proxy: ${OUTBOUND_PROXY || 'direct'}`);
