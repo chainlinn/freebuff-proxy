@@ -23,73 +23,60 @@ get_api_key() {
     return 1
 }
 
-# Step 2: Login via freebuff CLI if no key
+# Step 2: Login via codebuff auth API
 login() {
     echo "=== No API key found. Starting Freebuff login ==="
     echo ""
 
-    # Use freebuff's built-in login flow
-    # This creates a device code and prints a login URL
-    freebuff auth login --output json > /tmp/login_response.json 2>&1 || true
+    FINGERPRINT=$(cat /proc/sys/kernel/random/uuid)
+    RESPONSE=$(curl -s -X POST "${BACKEND_URL}/api/auth/cli/code" \
+        -H "Content-Type: application/json" \
+        -d "{\"fingerprintId\": \"${FINGERPRINT}\"}")
 
-    # If that doesn't work, try the manual approach
-    if [ ! -s /tmp/login_response.json ]; then
-        echo "Attempting manual login flow..."
-        # Request a login code from codebuff API
-        FINGERPRINT=$(cat /proc/sys/kernel/random/uuid)
-        RESPONSE=$(curl -s -X POST "${BACKEND_URL}/api/auth/cli/code" \
-            -H "Content-Type: application/json" \
-            -d "{\"fingerprintId\": \"${FINGERPRINT}\"}")
+    LOGIN_URL=$(echo "$RESPONSE" | jq -r '.url // .loginUrl // empty' 2>/dev/null)
 
-        LOGIN_URL=$(echo "$RESPONSE" | jq -r '.url // .loginUrl // empty' 2>/dev/null)
-        CODE=$(echo "$RESPONSE" | jq -r '.code // .deviceCode // empty' 2>/dev/null)
-
-        if [ -z "$LOGIN_URL" ]; then
-            echo "ERROR: Could not get login URL from server."
-            echo "Response: $RESPONSE"
-            echo ""
-            echo "Alternative: Set CODEBUFF_API_KEY env var manually:"
-            echo "  1. Install freebuff on your host: npm install -g freebuff"
-            echo "  2. Run 'freebuff' and login"
-            echo "  3. cat ~/.config/manicode/credentials.json | jq '.default.authToken'"
-            echo "  4. docker compose run freebuff-proxy with CODEBUFF_API_KEY=<token>"
-            exit 1
-        fi
-
-        echo "=============================================="
-        echo "  Open this URL in your browser to login:"
-        echo "  ${LOGIN_URL}"
-        echo "=============================================="
+    if [ -z "$LOGIN_URL" ]; then
+        echo "ERROR: Could not get login URL from server."
+        echo "Response: $RESPONSE"
         echo ""
-        echo "Waiting for authentication..."
-
-        # Poll for auth status
-        MAX_WAIT=300  # 5 minutes
-        ELAPSED=0
-        while [ $ELAPSED -lt $MAX_WAIT ]; do
-            STATUS=$(curl -s -X GET "${BACKEND_URL}/api/auth/cli/status" \
-                -H "Content-Type: application/json" \
-                -G \
-                --data-urlencode "fingerprintId=${FINGERPRINT}")
-
-            AUTH_TOKEN=$(echo "$STATUS" | jq -r '.authToken // .token // empty' 2>/dev/null)
-
-            if [ -n "$AUTH_TOKEN" ] && [ "$AUTH_TOKEN" != "null" ] && [ "$AUTH_TOKEN" != "" ]; then
-                echo "Login successful!"
-                # Save credentials
-                mkdir -p /app/data
-                echo "$STATUS" | jq '{default: {authToken: (.authToken // .token), id: .id, email: .email, name: .name, fingerprintId: "'${FINGERPRINT}'"}}' > "$CREDENTIALS_FILE"
-                echo "$AUTH_TOKEN"
-                return 0
-            fi
-
-            sleep 3
-            ELAPSED=$((ELAPSED + 3))
-        done
-
-        echo "ERROR: Login timed out after 5 minutes."
+        echo "Set CODEBUFF_API_KEY env var manually:"
+        echo "  1. npm install -g freebuff && freebuff"
+        echo "  2. cat ~/.config/manicode/credentials.json | jq '.default.authToken'"
+        echo "  3. Restart with CODEBUFF_API_KEY=<token>"
         exit 1
     fi
+
+    echo "=============================================="
+    echo "  Open this URL in your browser to login:"
+    echo "  ${LOGIN_URL}"
+    echo "=============================================="
+    echo ""
+    echo "Waiting for authentication..."
+
+    MAX_WAIT=300
+    ELAPSED=0
+    while [ $ELAPSED -lt $MAX_WAIT ]; do
+        STATUS=$(curl -s -X GET "${BACKEND_URL}/api/auth/cli/status" \
+            -H "Content-Type: application/json" \
+            -G \
+            --data-urlencode "fingerprintId=${FINGERPRINT}")
+
+        AUTH_TOKEN=$(echo "$STATUS" | jq -r '.authToken // .token // empty' 2>/dev/null)
+
+        if [ -n "$AUTH_TOKEN" ] && [ "$AUTH_TOKEN" != "null" ] && [ "$AUTH_TOKEN" != "" ]; then
+            echo "Login successful!"
+            mkdir -p /app/data
+            echo "$STATUS" | jq '{default: {authToken: (.authToken // .token), id: .id, email: .email, name: .name, fingerprintId: "'${FINGERPRINT}'"}}' > "$CREDENTIALS_FILE"
+            echo "$AUTH_TOKEN"
+            return 0
+        fi
+
+        sleep 3
+        ELAPSED=$((ELAPSED + 3))
+    done
+
+    echo "ERROR: Login timed out after 5 minutes."
+    exit 1
 }
 
 # Step 3: Get API key
@@ -99,9 +86,9 @@ fi
 
 echo ""
 echo "=== Freebuff API Proxy ==="
-echo "Backend:  ${BACKEND_URL}"
-echo "Port:     ${PROXY_PORT}"
-echo "Key:      ${API_KEY:0:8}..."
+echo "Backend:      ${BACKEND_URL}"
+echo "Port:         ${PROXY_PORT}"
+echo "Freebuff Key: ${API_KEY:0:8}..."
 echo "=========================="
 
 # Step 4: Substitute env vars into nginx config and start
