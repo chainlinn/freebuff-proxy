@@ -1,7 +1,7 @@
 FROM node:20-alpine
 
 # Install nginx + curl + jq
-RUN apk add --no-cache nginx curl jq
+RUN apk add --no-cache nginx curl jq gettext
 
 # Install freebuff CLI globally
 RUN npm install -g freebuff
