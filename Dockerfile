@@ -1,13 +1,10 @@
 FROM node:20-alpine
 
-# Install nginx + curl + jq
-RUN apk add --no-cache nginx curl jq gettext
+# Install curl + jq
+RUN apk add --no-cache curl jq
 
-# Install freebuff CLI globally
-RUN npm install -g freebuff
-
-# Copy configs
-COPY nginx.conf /etc/nginx/nginx.conf
+# Copy proxy server and entrypoint
+COPY proxy.js /app/proxy.js
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

@@ -1,13 +1,13 @@
 #!/bin/sh
 
 echo "========================================="
-echo "  freebuff-proxy v2024.04.17-1"
+echo "  freebuff-proxy v2024.04.17-3"
 echo "  Starting at: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "========================================="
 
 CREDENTIALS_FILE="/app/data/credentials.json"
 
-# Step 1: Check for existing credentials or env var
+# Step 1: Get API key
 echo "[DEBUG] Checking CODEBUFF_API_KEY env var..."
 if [ -n "$CODEBUFF_API_KEY" ]; then
     API_KEY="$CODEBUFF_API_KEY"
@@ -19,11 +19,9 @@ else
         if [ -n "$API_KEY" ] && [ "$API_KEY" != "null" ] && [ "$API_KEY" != "" ]; then
             echo "[INFO] Using saved credentials (${API_KEY:0:8}...)"
         else
-            echo "[DEBUG] Credentials file exists but no valid token found"
             API_KEY=""
         fi
     else
-        echo "[DEBUG] No credentials file at $CREDENTIALS_FILE"
         API_KEY=""
     fi
 fi
@@ -31,11 +29,9 @@ fi
 # Step 2: Login if no key
 if [ -z "$API_KEY" ]; then
     echo "[INFO] No API key found. Starting login flow..."
-    echo ""
 
     FINGERPRINT=$(cat /proc/sys/kernel/random/uuid)
     echo "[DEBUG] Fingerprint: $FINGERPRINT"
-    echo "[DEBUG] Requesting login URL from ${BACKEND_URL}/api/auth/cli/code ..."
 
     CODE_RESPONSE=$(curl -s -X POST "${BACKEND_URL}/api/auth/cli/code" \
         -H "Content-Type: application/json" \
@@ -48,16 +44,8 @@ if [ -z "$API_KEY" ]; then
     EXPIRES_AT=$(echo "$CODE_RESPONSE" | jq -r '.expiresAt // empty' 2>/dev/null)
 
     if [ -z "$LOGIN_URL" ]; then
-        echo "========================================="
-        echo "ERROR: Could not get login URL from server."
+        echo "ERROR: Could not get login URL."
         echo "Response: $CODE_RESPONSE"
-        echo ""
-        echo "Set CODEBUFF_API_KEY manually:"
-        echo "  1. npm install -g freebuff && freebuff"
-        echo "  2. cat ~/.config/manicode/credentials.json | jq '.default.authToken'"
-        echo "  3. docker compose run -e CODEBUFF_API_KEY=<token> freebuff-proxy"
-        echo "========================================="
-        # Keep container running so user can see the error
         exec tail -f /dev/null
     fi
 
@@ -67,7 +55,6 @@ if [ -z "$API_KEY" ]; then
     echo "  ${LOGIN_URL}"
     echo "========================================="
     echo ""
-    echo "[INFO] Waiting for authentication (timeout: 5min)..."
 
     MAX_WAIT=300
     ELAPSED=0
@@ -86,16 +73,7 @@ if [ -z "$API_KEY" ]; then
             USER_EMAIL=$(echo "$STATUS" | jq -r '.user.email // "unknown"')
             USER_ID=$(echo "$STATUS" | jq -r '.user.id // ""')
             cat > "$CREDENTIALS_FILE" <<EOF
-{
-  "default": {
-    "authToken": "${AUTH_TOKEN}",
-    "id": "${USER_ID}",
-    "name": "${USER_NAME}",
-    "email": "${USER_EMAIL}",
-    "fingerprintId": "${FINGERPRINT}",
-    "fingerprintHash": "${FINGERPRINT_HASH}"
-  }
-}
+{"default":{"authToken":"${AUTH_TOKEN}","id":"${USER_ID}","name":"${USER_NAME}","email":"${USER_EMAIL}","fingerprintId":"${FINGERPRINT}","fingerprintHash":"${FINGERPRINT_HASH}"}}
 EOF
             API_KEY="$AUTH_TOKEN"
             break
@@ -106,27 +84,23 @@ EOF
     done
 
     if [ -z "$API_KEY" ]; then
-        echo "[ERROR] Login timed out after 5 minutes."
-        echo "[INFO] Container staying alive. Restart with CODEBUFF_API_KEY set."
+        echo "[ERROR] Login timed out."
         exec tail -f /dev/null
     fi
 fi
 
 echo ""
 echo "=== Freebuff API Proxy ==="
-echo "  Version: v2024.04.17-1"
+echo "  Version: v2024.04.17-3"
 echo "  Time:    $(date '+%Y-%m-%d %H:%M:%S')"
 echo "  Backend: ${BACKEND_URL}"
 echo "  Port:    ${PROXY_PORT}"
 echo "  Key:     ${API_KEY:0:8}..."
 echo "=========================="
 
-# Step 3: Substitute env vars into nginx config
-envsubst '${API_KEY} ${BACKEND_URL}' \
-    < /etc/nginx/nginx.conf \
-    > /etc/nginx/nginx.conf.resolved
+# Step 3: Write API key to file for proxy server to read
+echo -n "$API_KEY" > /tmp/api_key
 
-mv /etc/nginx/nginx.conf.resolved /etc/nginx/nginx.conf
-
-echo "[INFO] Starting nginx..."
-exec nginx -g 'daemon off;'
+# Step 4: Start the Node.js proxy server
+echo "[INFO] Starting proxy server..."
+exec node /app/proxy.js
