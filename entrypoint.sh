@@ -91,7 +91,7 @@ fi
 
 echo ""
 echo "=== Freebuff API Proxy ==="
-echo "  Version: v2024.04.17-3"
+echo "  Version: v2024.04.17-4"
 echo "  Time:    $(date '+%Y-%m-%d %H:%M:%S')"
 echo "  Backend: ${BACKEND_URL}"
 echo "  Port:    ${PROXY_PORT}"

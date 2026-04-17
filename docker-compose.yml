@@ -4,6 +4,11 @@ services:
     pull_policy: always
     ports:
       - '9099:8080'
+    environment:
+      # 出站代理，支持 socks5/http/https
+      # socks5: socks5://user:pass@host:port
+      # http:   http://user:pass@host:port
+      - HTTPS_PROXY=
     volumes:
       - ./data:/app/data
     container_name: freebuff-proxy
