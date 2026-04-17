@@ -10,7 +10,7 @@ RUN chmod +x /entrypoint.sh
 
 # Environment variables
 ENV CODEBUFF_API_KEY=""
-ENV BACKEND_URL="https://codebuff.com"
+ENV BACKEND_URL="https://www.codebuff.com"
 ENV PROXY_PORT=8080
 
 ENTRYPOINT ["/entrypoint.sh"]
