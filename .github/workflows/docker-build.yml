@@ -3,8 +3,6 @@ name: Build & Push Docker Image
 on:
   push:
     branches: [main, master]
-    paths:
-      - 'freebuff-proxy/**'
 
 env:
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/freebuff-proxy
@@ -12,10 +10,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: freebuff-proxy
 
     steps:
       - name: Checkout
@@ -33,7 +27,7 @@ jobs:
       - name: Build & Push
         uses: docker/build-push-action@v5
         with:
-          context: ./freebuff-proxy
+          context: .
           push: true
           tags: ${{ env.IMAGE_NAME }}:dev
           cache-from: type=gha
