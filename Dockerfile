@@ -3,11 +3,10 @@ FROM node:20-alpine
 # Install curl + jq
 RUN apk add --no-cache curl jq
 
-# Install proxy agent library (v6 is the last CommonJS version, v7+ is ESM-only)
-RUN npm install -g https-proxy-agent@6
-
-# Copy proxy server and entrypoint
+# Copy proxy server and install deps locally
 COPY proxy.js /app/proxy.js
+WORKDIR /app
+RUN npm init -y && npm install https-proxy-agent@6
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

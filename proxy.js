@@ -204,7 +204,7 @@ async function handleRequest(req, res) {
 
 const server = http.createServer(handleRequest);
 server.listen(PORT, () => {
-  console.log(`[INFO] freebuff-proxy v2024.04.17-8`);
+  console.log(`[INFO] freebuff-proxy v2024.04.17-9`);
   console.log(`[INFO] Listening on port ${PORT}`);
   console.log(`[INFO] Backend: ${BACKEND_URL}`);
   console.log(`[INFO] Outbound proxy: ${OUTBOUND_PROXY || 'direct'}`);
