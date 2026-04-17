@@ -1,7 +1,7 @@
 #!/bin/sh
 
 echo "========================================="
-echo "  freebuff-proxy v2024.04.17-7"
+echo "  freebuff-proxy v2024.04.17-8"
 echo "  Starting at: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "========================================="
 
@@ -13,6 +13,11 @@ OUTBOUND_PROXY="${HTTPS_PROXY:-${HTTP_PROXY:-${https_proxy:-${http_proxy:-}}}}"
 if [ -n "$OUTBOUND_PROXY" ]; then
     CURL_PROXY="-x $OUTBOUND_PROXY"
     echo "[INFO] Outbound proxy for curl: $OUTBOUND_PROXY"
+    echo "[DEBUG] Testing proxy connectivity..."
+    PROXY_IP=$(curl -s $CURL_PROXY --max-time 10 https://ipinfo.io/ip 2>/dev/null || echo "FAILED")
+    echo "[DEBUG] Exit IP via proxy: $PROXY_IP"
+    DIRECT_IP=$(curl -s --max-time 10 https://ipinfo.io/ip 2>/dev/null || echo "FAILED")
+    echo "[DEBUG] Exit IP direct:   $DIRECT_IP"
 fi
 
 # Step 1: Get API key

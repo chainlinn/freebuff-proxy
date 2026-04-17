@@ -5,8 +5,11 @@ const fs = require('fs');
 let HttpsProxyAgent;
 try {
   HttpsProxyAgent = require('https-proxy-agent');
-} catch (_) {
+  console.log('[INFO] https-proxy-agent loaded successfully');
+} catch (e) {
   HttpsProxyAgent = null;
+  console.error('[WARN] https-proxy-agent failed to load:', e.message);
+  console.error('[WARN] All requests will go direct (no proxy!)');
 }
 
 const BACKEND_URL = process.env.BACKEND_URL || 'https://www.codebuff.com';
@@ -19,8 +22,14 @@ const backendUrl = new URL(BACKEND_URL);
 // Build https.Agent with proxy support
 function getAgent() {
   if (OUTBOUND_PROXY && HttpsProxyAgent) {
-    return new HttpsProxyAgent(OUTBOUND_PROXY);
+    const agent = new HttpsProxyAgent(OUTBOUND_PROXY);
+    console.log(`[INFO] Using PROXY agent: ${OUTBOUND_PROXY}`);
+    return agent;
   }
+  if (OUTBOUND_PROXY && !HttpsProxyAgent) {
+    console.error('[ERROR] HTTPS_PROXY is set but https-proxy-agent is NOT loaded! Requests go DIRECT.');
+  }
+  console.log('[INFO] Using DIRECT connection (no proxy)');
   return new https.Agent();
 }
 
@@ -195,7 +204,7 @@ async function handleRequest(req, res) {
 
 const server = http.createServer(handleRequest);
 server.listen(PORT, () => {
-  console.log(`[INFO] freebuff-proxy v2024.04.17-7`);
+  console.log(`[INFO] freebuff-proxy v2024.04.17-8`);
   console.log(`[INFO] Listening on port ${PORT}`);
   console.log(`[INFO] Backend: ${BACKEND_URL}`);
   console.log(`[INFO] Outbound proxy: ${OUTBOUND_PROXY || 'direct'}`);
